@@ -1,0 +1,124 @@
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "30c95f12-bb68-4bb0-92e4-2025fadc1dbf",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [112, -272]
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "1FNUsPruPLiStsYl007qHYIz-W69AQZvHxYBi4jE3Tec", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Experience Knowledge Base", "mode": "name"},
+        "options": {}
+      },
+      "id": "b0804361-e4a7-4d51-8773-88e878bce844",
+      "name": "Read Experience Knowledge Base",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [336, -272],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "S8xqAW5mmNVMW0f9", "name": "Google Sheets account"}}
+    },
+    {
+      "parameters": {"jsCode": "const rows = $input.all();\nconst unused = rows.filter(item => { const used = String(item.json['Used'] ?? '').trim().toLowerCase(); return used === 'no' || used === ''; });\nif (!unused.length) throw new Error('No unused experiences found in Experience Knowledge Base.');\nconst selected = unused[0].json;\nreturn [{ json: { ...selected, selectedAt: new Date().toISOString(), selectionReason: 'First unused experience' } }];"},
+      "id": "a767e576-9e61-4f1a-b32e-40a7391e85ef",
+      "name": "Select Unused Experience",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, -272]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {"parameters": [{"name": "key", "value": "={{ $env.GEMINI_API_KEY }}"}]},
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ contents: [{ parts: [{ text: `You are Pavan's personal LinkedIn content strategist.\n\nUse ONLY the verified career experience below. Do not invent clients, metrics, achievements, technologies, dates, responsibilities or results.\n\nPavan's positioning:\nPerformance Engineering, AI-powered testing and automation, Cloud and microservices, Observability, Engineering leadership.\n\nGenerate exactly 3 DISTINCT LinkedIn content angles.\n\nAngle 1: Personal engineering lesson/story\nAngle 2: Connection to a modern technology trend\nAngle 3: Practical advice/framework for engineers\n\nPrioritize authentic expertise over generic AI content. Avoid clickbait, motivational fluff and exaggerated claims.\n\nReturn ONLY valid JSON in this structure:\n{\n  \"experience_id\": \"\",\n  \"angles\": [\n    {\"title\": \"\", \"hook\": \"\", \"core_angle\": \"\", \"why_it_is_interesting\": \"\", \"suggested_format\": \"Text\"},\n    {\"title\": \"\", \"hook\": \"\", \"core_angle\": \"\", \"why_it_is_interesting\": \"\", \"suggested_format\": \"Text\"},\n    {\"title\": \"\", \"hook\": \"\", \"core_angle\": \"\", \"why_it_is_interesting\": \"\", \"suggested_format\": \"Text\"}\n  ]\n}\n\nEXPERIENCE ID: ${$json['Experience ID']}\nCATEGORY: ${$json['Category']}\nTECHNOLOGY: ${$json['Technology']}\nEXPERIENCE: ${$json['Experience']}\nPROBLEM: ${$json['Problem']}\nWHAT I DID: ${$json['What I Did']}\nRESULT: ${$json['Result']}\nLESSON: ${$json['Lesson']}\nCONTENT POTENTIAL: ${$json['Content Potential']}` }] }] }) }}",
+        "options": {}
+      },
+      "id": "b094ad4e-95fc-400b-a52b-fc45d694ec8a",
+      "name": "Generate 3 Content Angles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [784, -272]
+    },
+    {
+      "parameters": {"jsCode": "const response = $input.first().json; let text = response?.candidates?.[0]?.content?.parts?.[0]?.text; if (!text) throw new Error('Gemini returned no text response.'); text = text.replace(/^```json\\s*/i, '').replace(/^```\\s*/i, '').replace(/\\s*```$/i, '').trim(); const parsed = JSON.parse(text); return [{ json: parsed }];"},
+      "id": "e0d4801e-3ead-4a1a-bee6-49ee230faca3",
+      "name": "Parse Gemini Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1008, -272]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {"parameters": [{"name": "key", "value": "={{ $env.GEMINI_API_KEY }}"}]},
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ contents: [{ parts: [{ text: `Write ONE LinkedIn post for Pavan using the verified experience and the three angles below.\n\nChoose the strongest angle.\nWrite in first person.\nSound like an experienced engineer.\nDo not invent facts, metrics, clients, technologies or results.\nMaximum 1800 characters.\nInclude 3-5 relevant hashtags.\n\nReturn ONLY valid JSON:\n{\n  \"experience_id\": \"\",\n  \"title\": \"\",\n  \"post_text\": \"\"\n}\n\nVERIFIED EXPERIENCE:\n${JSON.stringify($('Select Unused Experience').first().json)}\n\nCONTENT ANGLES:\n${JSON.stringify($('Parse Gemini Output').first().json)}` }] }] }) }}",
+        "options": {}
+      },
+      "id": "final-post-generator-001",
+      "name": "Generate Final LinkedIn Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1232, -272]
+    },
+    {
+      "parameters": {"jsCode": "const response = $input.first().json; let text = response?.candidates?.[0]?.content?.parts?.[0]?.text; if (!text) throw new Error('Gemini returned no final post.'); text = text.replace(/^```json\\s*/i, '').replace(/^```\\s*/i, '').replace(/\\s*```$/i, '').trim(); const parsed = JSON.parse(text); if (!parsed.post_text) throw new Error('No post_text returned.'); if (parsed.post_text.length > 1800) throw new Error('Post exceeds 1800 characters.'); return [{ json: { ...parsed, experience_row: $('Select Unused Experience').first().json.row_number, experience_id: $('Select Unused Experience').first().json['Experience ID'] } }];"},
+      "id": "validate-final-post-001",
+      "name": "Validate Final LinkedIn Post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1456, -272]
+    },
+    {
+      "parameters": {"jsCode": "const source = $('Select Unused Experience').first().json; const post = $json; return [{ json: { 'Queue ID': `Q-${Date.now()}-${source['Experience ID']}`, 'Experience ID': source['Experience ID'], 'Title': post.title, 'Post Text': post.post_text, 'Approval Status': 'Pending', 'Posted': 'No', 'LinkedIn Post ID': '', 'Created At': new Date().toISOString(), 'Experience Row': source.row_number } }];"},
+      "id": "prepare-approval-queue-001",
+      "name": "Prepare Approval Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, -272]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "1FNUsPruPLiStsYl007qHYIz-W69AQZvHxYBi4jE3Tec", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "LinkedIn Approval Queue", "mode": "name"},
+        "columns": {"mappingMode": "autoMapInputData", "value": {}},
+        "options": {}
+      },
+      "id": "write-approval-queue-001",
+      "name": "Write Approval Queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1904, -272],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "S8xqAW5mmNVMW0f9", "name": "Google Sheets account"}}
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {"main": [[{"node": "Read Experience Knowledge Base", "type": "main", "index": 0}]]},
+    "Read Experience Knowledge Base": {"main": [[{"node": "Select Unused Experience", "type": "main", "index": 0}]]},
+    "Select Unused Experience": {"main": [[{"node": "Generate 3 Content Angles", "type": "main", "index": 0}]]},
+    "Generate 3 Content Angles": {"main": [[{"node": "Parse Gemini Output", "type": "main", "index": 0}]]},
+    "Parse Gemini Output": {"main": [[{"node": "Generate Final LinkedIn Post", "type": "main", "index": 0}]]},
+    "Generate Final LinkedIn Post": {"main": [[{"node": "Validate Final LinkedIn Post", "type": "main", "index": 0}]]},
+    "Validate Final LinkedIn Post": {"main": [[{"node": "Prepare Approval Queue", "type": "main", "index": 0}]]},
+    "Prepare Approval Queue": {"main": [[{"node": "Write Approval Queue", "type": "main", "index": 0}]]}
+  },
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": true, "instanceId": "925968dbb0eb3f829f293a1e184364ce44556751a8ccb87696c1b935c6292702"}
+}
