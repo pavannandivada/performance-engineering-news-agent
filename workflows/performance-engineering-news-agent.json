@@ -1,0 +1,167 @@
+{
+  "name": "Performance Engineering News Agent",
+  "nodes": [
+    {
+      "parameters": {"rule": {"interval": [{}]}},
+      "id": "4bfae0ff-0326-4aaf-a4aa-9a8dc9400dec",
+      "name": "Schedule Trigger (Daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [4048, 928]
+    },
+    {
+      "parameters": {"url": "https://opentelemetry.io/blog/index.xml", "options": {}},
+      "id": "91da17c3-5d87-49f6-a453-a9bbfe8daa08",
+      "name": "Fetch OpenTelemetry Blog",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [4272, 928]
+    },
+    {
+      "parameters": {"documentId": {"__rl": true, "value": "<GOOGLE_SHEET_ID>", "mode": "id"}, "sheetName": {"__rl": true, "value": "Sheet1", "mode": "name"}, "options": {}},
+      "id": "4862f967-42b2-4f51-afc9-f1fd44c87594",
+      "name": "Read Existing Tracker",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [4496, 928],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "<N8N_CREDENTIAL_ID>", "name": "Google Sheets account"}}
+    },
+    {
+      "parameters": {"jsCode": "const rssItems = $items('Fetch OpenTelemetry Blog').map(i => i.json);\nconst sheetItems = $items('Read Existing Tracker').map(i => i.json);\nconst existingUrls = new Set(sheetItems.map(item => (item.URL || item['Article ID'] || '').trim().replace(/\\\/$/, '')).filter(Boolean));\nconst newPosts = [];\nfor (const rss of rssItems) {\n  const link = (rss.link || '').trim().replace(/\\\/$/, '');\n  const title = (rss.title || '').trim();\n  if (!link || !title) continue;\n  if (!existingUrls.has(link)) {\n    newPosts.push({json: {'Article ID': rss.link, Title: title, URL: rss.link, 'Published Date': rss.isoDate || rss.pubDate || '', score: 0, 'Score Reason': '', Status: 'Pending', Posted: 'FALSE', 'Posted Date': ''}});\n  }\n}\nif (newPosts.length === 0) return [{json: {_no_new_items: true}}];\nreturn newPosts;"},
+      "id": "a9da71eb-13b3-4809-a155-fd823795f993",
+      "name": "Identify New Blog Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4720, 928]
+    },
+    {
+      "parameters": {"conditions": {"boolean": [{"value1": "={{ $json._no_new_items }}"}]}},
+      "id": "3c9cfdd1-3ae3-42ac-9dea-b5b916bca1f7",
+      "name": "Are There New Posts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [4944, 928]
+    },
+    {
+      "parameters": {"method": "POST", "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}, {"name": "x-goog-api-key", "value": "={{ $env.GEMINI_API_KEY }}"}]}, "sendBody": true, "specifyBody": "json", "jsonBody": "={{ { contents: [ { parts: [ { text: `You are an expert content strategist for a senior Performance Engineering and Observability engineer.\n\nScore this OpenTelemetry article for whether it deserves a technical LinkedIn post.\n\nARTICLE TITLE:\n${$json.Title}\n\nARTICLE URL:\n${$json.URL}\n\nScore from 1 to 10 using these priorities:\n- Performance engineering relevance: 0-2\n- Observability/OpenTelemetry relevance: 0-2\n- Technical depth: 0-2\n- Practical engineering value: 0-2\n- LinkedIn discussion and portfolio value: 0-2\n\nPrefer substantive engineering topics over events, announcements, surveys, community updates, or generic project news.\n\nReturn only the requested structured JSON.` } ] } ], generationConfig: { responseMimeType: 'application/json', responseSchema: { type: 'object', properties: { score: { type: 'integer' }, reason: { type: 'string' } }, required: ['score', 'reason'] } } } }}", "options": {}},
+      "id": "63ab9ca1-1b29-47db-aab7-cea8c9c3753d",
+      "name": "Score Article With Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [5168, 848]
+    },
+    {
+      "parameters": {"jsCode": "const gemini = $input.first().json;\nconst original = $('Identify New Blog Posts').item.json;\nlet result = {};\ntry { const text = gemini.candidates?.[0]?.content?.parts?.[0]?.text || '{}'; result = JSON.parse(text); } catch (e) { result = {score: 5, reason: 'Gemini scoring response could not be parsed; default score applied.'}; }\nlet score = Number(result.score);\nif (!Number.isFinite(score)) score = 5;\nscore = Math.max(1, Math.min(10, Math.round(score)));\nreturn [{json: {...original, score, 'Score Reason': result.reason || '', Status: 'Pending', Posted: 'FALSE'}}];"},
+      "id": "8e682069-61ed-4273-924e-fe0102d2cd53",
+      "name": "Parse Article Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5392, 848]
+    },
+    {
+      "parameters": {"operation": "append", "documentId": {"__rl": true, "value": "<GOOGLE_SHEET_ID>", "mode": "id"}, "sheetName": {"__rl": true, "value": "Sheet1", "mode": "name"}, "columns": {"mappingMode": "autoMapInputData"}, "options": {}},
+      "id": "b672d260-2d46-48d4-bcf1-9ceafa6fee3a",
+      "name": "Append Scored Articles",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [5616, 848],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "<N8N_CREDENTIAL_ID>", "name": "Google Sheets account"}}
+    },
+    {
+      "parameters": {"documentId": {"__rl": true, "value": "<GOOGLE_SHEET_ID>", "mode": "id"}, "sheetName": {"__rl": true, "value": "Sheet1", "mode": "name"}, "options": {}},
+      "id": "a2874c34-1c8a-4f0c-a356-775eaffd281a",
+      "name": "Read Updated Tracker",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [5840, 928],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "<N8N_CREDENTIAL_ID>", "name": "Google Sheets account"}}
+    },
+    {
+      "parameters": {"url": "https://api.linkedin.com/v2/userinfo", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.LINKEDIN_ACCESS_TOKEN }}"}]}, "options": {}},
+      "id": "d9a404f3-7b58-4e91-a32d-f486dd118f7e",
+      "name": "Get LinkedIn Profile URN",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [6064, 928]
+    },
+    {
+      "parameters": {"jsCode": "const profileData = $items('Get LinkedIn Profile URN')[0].json;\nconst memberId = profileData.sub || profileData.id;\nconst authorUrn = `urn:li:person:${memberId}`;\nconst rows = $items('Read Updated Tracker');\nconst candidates = [];\nfor (const item of rows) {\n  const row = item.json;\n  const rawPosted = row.Posted;\n  const isPosted = rawPosted === true || String(rawPosted || '').trim().toUpperCase() === 'TRUE';\n  const title = (row.Title || '').trim();\n  const url = (row.URL || row['Article ID'] || '').trim();\n  const scoreValue = row.score ?? row.Score ?? 0;\n  const score = Number(scoreValue);\n  const pubDateStr = row['Published Date'] || '';\n  const pubDate = pubDateStr ? new Date(pubDateStr).getTime() : 0;\n  if (isPosted || !title || !url) continue;\n  candidates.push({rowNumber: row.row_number, title, url, score: Number.isFinite(score) ? score : 0, pubDate: Number.isFinite(pubDate) ? pubDate : 0, author_urn: authorUrn});\n}\nif (candidates.length === 0) return [];\ncandidates.sort((a,b) => a.score !== b.score ? b.score - a.score : b.pubDate - a.pubDate);\nreturn [{json: candidates[0]}];"},
+      "id": "7c75e6f0-0107-4e1a-93e6-6444858e62d7",
+      "name": "Filter Unposted & Pick Best",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [6288, 928]
+    },
+    {
+      "parameters": {"url": "={{ $json.url }}", "options": {"response": {"response": {"responseFormat": "text"}}}},
+      "id": "88b4a09d-bbcc-4388-acd9-073079b89317",
+      "name": "Scrape Article HTML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [6512, 928]
+    },
+    {
+      "parameters": {"jsCode": "const html = $input.first().json.data || '';\nlet cleanText = html.replace(/<script[\\s\\S]*?<\\/script>/gi,' ').replace(/<style[\\s\\S]*?<\\/style>/gi,' ').replace(/<nav[\\s\\S]*?<\\/nav>/gi,' ').replace(/<footer[\\s\\S]*?<\\/footer>/gi,' ').replace(/<header[\\s\\S]*?<\\/header>/gi,' ').replace(/<[^>]*>/g,' ').replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&quot;/gi,'\"').replace(/&#39;/gi,\"'\").replace(/\\s+/g,' ').trim();\ncleanText = cleanText.substring(0,20000);\nreturn [{json: {...$('Filter Unposted & Pick Best').first().json, article_text: cleanText}}];"},
+      "id": "f9baecd9-ab1f-4ba6-89c2-b898b51c78f5",
+      "name": "Clean HTML to Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [6736, 928]
+    },
+    {
+      "parameters": {"method": "POST", "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}, {"name": "x-goog-api-key", "value": "={{ $env.GEMINI_API_KEY }}"}]}, "sendBody": true, "specifyBody": "json", "jsonBody": "={{ { contents: [ { parts: [ { text: `ROLE:\nYou are a senior Performance Engineering, Observability, and OpenTelemetry expert writing technical LinkedIn posts for experienced engineers.\n\nARTICLE TITLE:\n${$json.title}\n\nARTICLE URL:\n${$json.url}\n\nARTICLE CONTENT:\n${$json.article_text}\n\nTASK:\nCreate one concise, technically accurate LinkedIn post based ONLY on the article content.\n\nSTRUCTURE:\n1. Start with a direct, grounded observation or question.\n2. Explain the important technical change in 2-3 short sentences.\n3. Explain why it matters for engineers.\n4. Give exactly three takeaways using these labels:\n🔎 Schema visibility:\n⚡ Upgrade safety:\n💡 Deterministic configuration:\n5. End with a natural Performance Engineering perspective connecting observability architecture to diagnostics and distributed-system performance.\n6. End with: Read the full article here: ${$json.url}\n7. End with exactly these hashtags:\n#PerformanceEngineering #Observability #DevOps #SRE #OpenTelemetry\n\nRULES:\n- 150-250 words.\n- Experienced engineer tone.\n- Calm and authoritative.\n- No clickbait.\n- No dramatic AI phrases.\n- No invented benchmarks.\n- No invented performance improvements.\n- No claims unsupported by the article.\n- Do not mention AI or this prompt.\n- Do not use markdown links.\n- Return only the requested JSON object.` } ] } ], generationConfig: { responseMimeType: 'application/json', responseSchema: { type: 'object', properties: { linkedin_post: { type: 'string' } }, required: ['linkedin_post'] } } } }}", "options": {}},
+      "id": "5f430b4c-0c88-4ad8-b969-b3735dbea7d9",
+      "name": "Generate LinkedIn Post (Gemini AI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [6960, 928]
+    },
+    {
+      "parameters": {"jsCode": "const geminiRes = $input.first().json;\nconst source = $('Clean HTML to Text').first().json;\nlet post = '';\ntry { const textContent = geminiRes.candidates?.[0]?.content?.parts?.[0]?.text || '{}'; const parsed = JSON.parse(textContent); post = String(parsed.linkedin_post || '').trim(); } catch (e) {}\nif (!post) throw new Error('Gemini did not return a valid LinkedIn post. Publishing stopped.');\nconst wordCount = post.split(/\\s+/).filter(Boolean).length;\nif (wordCount < 120 || wordCount > 300) throw new Error(`Generated LinkedIn post has ${wordCount} words. Expected approximately 150-250. Publishing stopped.`);\nif (!post.includes(source.url)) post += `\\n\\nRead the full article here: ${source.url}`;\nif (!post.includes('#PerformanceEngineering')) post += '\\n\\n#PerformanceEngineering #Observability #DevOps #SRE #OpenTelemetry';\nreturn [{json: {...source, linkedin_post: post}}];"},
+      "id": "705998c1-70fa-4e54-a31e-50636e720c07",
+      "name": "Validate Generated Post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [7184, 928]
+    },
+    {
+      "parameters": {"method": "POST", "url": "https://api.linkedin.com/rest/posts", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.LINKEDIN_ACCESS_TOKEN }}"}, {"name": "LinkedIn-Version", "value": "202607"}, {"name": "X-Restli-Protocol-Version", "value": "2.0.0"}, {"name": "Content-Type", "value": "application/json"}]}, "sendBody": true, "specifyBody": "json", "jsonBody": "={{ { author: $json.author_urn, commentary: $json.linkedin_post, visibility: 'PUBLIC', distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] }, lifecycleState: 'PUBLISHED', isReshareDisabledByAuthor: false } }}", "options": {}},
+      "id": "1fd8f0dd-5c13-4e75-8621-98cef28f494a",
+      "name": "Publish to LinkedIn API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [7408, 928]
+    },
+    {
+      "parameters": {"operation": "update", "documentId": {"__rl": true, "value": "<GOOGLE_SHEET_ID>", "mode": "id"}, "sheetName": {"__rl": true, "value": "Sheet1", "mode": "name"}, "columns": {"mappingMode": "defineBelow", "value": {"Article ID": "={{ $('Filter Unposted & Pick Best').first().json.url }}", "Posted": "TRUE", "Posted Date": "={{ $now.format('yyyy-MM-dd HH:mm:ss') }}", "Status": "Published"}, "matchingColumns": ["Article ID"]}, "options": {}},
+      "id": "6c95d191-a2fa-41f1-b8d7-7f91ef7fedd0",
+      "name": "Update Tracker Posted Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [7632, 928],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "<N8N_CREDENTIAL_ID>", "name": "Google Sheets account"}}
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (Daily)": {"main": [[{"node": "Fetch OpenTelemetry Blog", "type": "main", "index": 0}]]},
+    "Fetch OpenTelemetry Blog": {"main": [[{"node": "Read Existing Tracker", "type": "main", "index": 0}]]},
+    "Read Existing Tracker": {"main": [[{"node": "Identify New Blog Posts", "type": "main", "index": 0}]]},
+    "Identify New Blog Posts": {"main": [[{"node": "Are There New Posts?", "type": "main", "index": 0}]]},
+    "Are There New Posts?": {"main": [[{"node": "Score Article With Gemini", "type": "main", "index": 0}], [{"node": "Read Updated Tracker", "type": "main", "index": 0}]]},
+    "Score Article With Gemini": {"main": [[{"node": "Parse Article Score", "type": "main", "index": 0}]]},
+    "Parse Article Score": {"main": [[{"node": "Append Scored Articles", "type": "main", "index": 0}]]},
+    "Append Scored Articles": {"main": [[{"node": "Read Updated Tracker", "type": "main", "index": 0}]]},
+    "Read Updated Tracker": {"main": [[{"node": "Get LinkedIn Profile URN", "type": "main", "index": 0}]]},
+    "Get LinkedIn Profile URN": {"main": [[{"node": "Filter Unposted & Pick Best", "type": "main", "index": 0}]]},
+    "Filter Unposted & Pick Best": {"main": [[{"node": "Scrape Article HTML", "type": "main", "index": 0}]]},
+    "Scrape Article HTML": {"main": [[{"node": "Clean HTML to Text", "type": "main", "index": 0}]]},
+    "Clean HTML to Text": {"main": [[{"node": "Generate LinkedIn Post (Gemini AI)", "type": "main", "index": 0}]]},
+    "Generate LinkedIn Post (Gemini AI)": {"main": [[{"node": "Validate Generated Post", "type": "main", "index": 0}]]},
+    "Validate Generated Post": {"main": [[{"node": "Publish to LinkedIn API", "type": "main", "index": 0}]]},
+    "Publish to LinkedIn API": {"main": [[{"node": "Update Tracker Posted Status", "type": "main", "index": 0}]]}
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "production-final",
+  "meta": {"templateCredsSetupCompleted": true}
+}
