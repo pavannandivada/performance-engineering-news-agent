@@ -1,0 +1,70 @@
+{
+  "name": "LinkedIn Approved Queue → Publisher",
+  "nodes": [
+    {
+      "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": 5}]}},
+      "id": "schedule-approval-publisher-001",
+      "name": "Check Approval Queue",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "1FNUsPruPLiStsYl007qHYIz-W69AQZvHxYBi4jE3Tec", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "LinkedIn Approval Queue", "mode": "name"},
+        "options": {}
+      },
+      "id": "read-approval-queue-001",
+      "name": "Read Approval Queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [520, 300],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "S8xqAW5mmNVMW0f9", "name": "Google Sheets account"}}
+    },
+    {
+      "parameters": {"jsCode": "const approved = $input.all().filter(item => { const status = String(item.json['Approval Status'] ?? '').trim().toLowerCase(); const posted = String(item.json['Posted'] ?? '').trim().toLowerCase(); return status === 'approved' && posted !== 'yes'; }); if (!approved.length) return []; return approved.map(item => ({ json: item.json }));"},
+      "id": "filter-approved-001",
+      "name": "Filter Approved Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {"method": "GET", "url": "https://api.linkedin.com/v2/userinfo", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "Bearer {{ $env.LINKEDIN_ACCESS_TOKEN }}"}]}, "options": {}},
+      "id": "linkedin-userinfo-001",
+      "name": "Get LinkedIn Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {"method": "POST", "url": "https://api.linkedin.com/rest/posts", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "Bearer {{ $env.LINKEDIN_ACCESS_TOKEN }}"}, {"name": "X-Restli-Protocol-Version", "value": "2.0.0"}, {"name": "Linkedin-Version", "value": "202606"}, {"name": "Content-Type", "value": "application/json"}]}, "sendBody": true, "contentType": "raw", "rawContentType": "application/json", "body": "={{ JSON.stringify({ author: `urn:li:person:${$json.sub}`, commentary: $('Filter Approved Posts').first().json['Post Text'], visibility: 'PUBLIC', distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] }, lifecycleState: 'PUBLISHED', isReshareDisabledByAuthor: false }) }}", "options": {}},
+      "id": "linkedin-publish-001",
+      "name": "Publish Approved Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1240, 300]
+    },
+    {
+      "parameters": {"operation": "update", "documentId": {"__rl": true, "value": "1FNUsPruPLiStsYl007qHYIz-W69AQZvHxYBi4jE3Tec", "mode": "id"}, "sheetName": {"__rl": true, "value": "LinkedIn Approval Queue", "mode": "name"}, "columns": {"mappingMode": "defineBelow", "value": {"Posted": "Yes", "LinkedIn Post ID": "={{ $json.id }}", "Queue ID": "={{ $('Filter Approved Posts').first().json['Queue ID'] }}"}, "matchingColumns": ["Queue ID"], "schema": [{"id": "Queue ID", "displayName": "Queue ID", "type": "string", "canBeUsedToMatch": true, "removed": false}, {"id": "Experience ID", "displayName": "Experience ID", "type": "string", "removed": true}, {"id": "Title", "displayName": "Title", "type": "string", "removed": true}, {"id": "Post Text", "displayName": "Post Text", "type": "string", "removed": true}, {"id": "Approval Status", "displayName": "Approval Status", "type": "string", "removed": true}, {"id": "Posted", "displayName": "Posted", "type": "string", "removed": false}, {"id": "LinkedIn Post ID", "displayName": "LinkedIn Post ID", "type": "string", "removed": false}, {"id": "Created At", "displayName": "Created At", "type": "string", "removed": true}]}, "options": {}},
+      "id": "mark-posted-001",
+      "name": "Mark Posted",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1480, 300],
+      "credentials": {"googleSheetsOAuth2Api": {"id": "S8xqAW5mmNVMW0f9", "name": "Google Sheets account"}}
+    }
+  ],
+  "connections": {
+    "Check Approval Queue": {"main": [[{"node": "Read Approval Queue", "type": "main", "index": 0}]]},
+    "Read Approval Queue": {"main": [[{"node": "Filter Approved Posts", "type": "main", "index": 0}]]},
+    "Filter Approved Posts": {"main": [[{"node": "Get LinkedIn Profile", "type": "main", "index": 0}]]},
+    "Get LinkedIn Profile": {"main": [[{"node": "Publish Approved Post", "type": "main", "index": 0}]]},
+    "Publish Approved Post": {"main": [[{"node": "Mark Posted", "type": "main", "index": 0}]]}
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {"executionOrder": "v1"},
+  "meta": {"templateCredsSetupCompleted": true, "instanceId": "925968dbb0eb3f829f293a1e184364ce44556751a8ccb87696c1b935c6292702"}
+}
